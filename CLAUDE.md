@@ -120,4 +120,4 @@ cargo test --test integration -p worker -- --nocapture
 ## Code Style
 
 - **Rust**: standard rustfmt / clippy conventions
-- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) required. Body lines max 100 chars.
+- **Commits**: [Conventional Commits](https://www.conventionalcommits.org/) required. Body lines max 100 chars. **Do NOT add `Co-Authored-By` lines.**
