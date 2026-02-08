@@ -14,6 +14,43 @@ use crate::models::EmbeddingConfig;
 const OPENAI_MAX_TOKENS_PER_BATCH: usize = 300_000;
 const OPENAI_EMBEDDING_CONTEXT_LENGTH: usize = 8191;
 
+/// Shared token counting and truncation using a tiktoken encoder.
+struct TokenTruncator {
+    encoder: CoreBPE,
+    max_tokens: usize,
+}
+
+impl TokenTruncator {
+    fn new(encoder: CoreBPE, max_tokens: usize) -> Self {
+        Self { encoder, max_tokens }
+    }
+
+    fn from_cl100k(max_tokens: usize) -> Self {
+        let encoder = tiktoken_rs::cl100k_base().expect("cl100k_base encoder");
+        Self::new(encoder, max_tokens)
+    }
+
+    fn count_tokens(&self, text: &str) -> usize {
+        self.encoder.encode_with_special_tokens(text).len()
+    }
+
+    fn truncate_if_needed(&self, text: &str) -> String {
+        let tokens = self.encoder.encode_with_special_tokens(text);
+        if tokens.len() <= self.max_tokens {
+            return text.to_string();
+        }
+
+        warn!(
+            "Chunk truncated from {} to {} tokens",
+            tokens.len(),
+            self.max_tokens
+        );
+        self.encoder
+            .decode(tokens[..self.max_tokens].to_vec())
+            .unwrap_or_else(|_| text[..text.len().min(self.max_tokens * 4)].to_string())
+    }
+}
+
 /// Split chunks into batches respecting max_chunks_per_batch and max_tokens_per_batch.
 /// Returns list of (start_index, end_index) tuples.
 fn batch_indices(
@@ -81,8 +118,7 @@ pub struct OpenAIEmbedder {
     client: OpenAIClient<async_openai::config::OpenAIConfig>,
     model: String,
     dimensions: Option<u32>,
-    encoder: Option<CoreBPE>,
-    context_length: Option<usize>,
+    truncator: Option<TokenTruncator>,
 }
 
 impl OpenAIEmbedder {
@@ -93,12 +129,6 @@ impl OpenAIEmbedder {
         }
         let client = OpenAIClient::with_config(config);
 
-        let encoder = tiktoken_rs::get_bpe_from_model(&model)
-            .inspect_err(|_| {
-                warn!("Tokenizer for model {} not found, token counting disabled", model);
-            })
-            .ok();
-
         let context_length = match model.as_str() {
             "text-embedding-ada-002" | "text-embedding-3-small" | "text-embedding-3-large" => {
                 Some(OPENAI_EMBEDDING_CONTEXT_LENGTH)
@@ -106,42 +136,38 @@ impl OpenAIEmbedder {
             _ => None,
         };
 
+        let truncator = context_length.and_then(|max_tokens| {
+            tiktoken_rs::get_bpe_from_model(&model)
+                .inspect_err(|_| {
+                    warn!("Tokenizer for model {} not found, token counting disabled", model);
+                })
+                .ok()
+                .map(|encoder| TokenTruncator::new(encoder, max_tokens))
+        });
+
         Self {
             client,
             model,
             dimensions: dimensions.map(|d| d as u32),
-            encoder,
-            context_length,
+            truncator,
         }
     }
 
-    /// Count tokens for a text. Falls back to byte-based estimation if no encoder available.
+    /// Count tokens for a text. Falls back to byte-based estimation if no truncator available.
     fn count_tokens(&self, text: &str) -> usize {
-        match &self.encoder {
-            Some(enc) => enc.encode_with_special_tokens(text).len(),
+        match &self.truncator {
+            Some(t) => t.count_tokens(text),
             None => (text.len() as f64 * 0.25).ceil() as usize,
         }
     }
 
     /// Truncate text to fit within context_length tokens. Returns the text unchanged
-    /// if no encoder or context_length is configured, or if it already fits.
+    /// if no truncator is configured, or if it already fits.
     fn truncate_if_needed(&self, text: &str) -> String {
-        let (Some(enc), Some(max_tokens)) = (&self.encoder, self.context_length) else {
-            return text.to_string();
-        };
-
-        let tokens = enc.encode_with_special_tokens(text);
-        if tokens.len() <= max_tokens {
-            return text.to_string();
+        match &self.truncator {
+            Some(t) => t.truncate_if_needed(text),
+            None => text.to_string(),
         }
-
-        warn!(
-            "Chunk truncated from {} to {} tokens",
-            tokens.len(),
-            max_tokens
-        );
-        enc.decode(tokens[..max_tokens].to_vec())
-            .unwrap_or_else(|_| text[..text.len().min(max_tokens * 4)].to_string())
     }
 }
 
@@ -185,23 +211,29 @@ impl Embedder for OpenAIEmbedder {
 pub struct OllamaEmbedder {
     client: Ollama,
     model: String,
+    truncator: Option<TokenTruncator>,
 }
 
 impl OllamaEmbedder {
-    pub fn new(base_url: Option<String>, model: String) -> Self {
+    pub fn new(base_url: Option<String>, model: String, max_tokens: Option<usize>) -> Self {
         let url = base_url.unwrap_or_else(|| "http://localhost:11434".to_string());
         let parsed_url = url::Url::parse(&url).expect("Invalid Ollama URL");
         let client = Ollama::new(
             parsed_url.scheme().to_string() + "://" + parsed_url.host_str().unwrap(),
             parsed_url.port().unwrap_or(11434)
         );
-        Self { client, model }
+        let truncator = max_tokens.map(TokenTruncator::from_cl100k);
+        Self { client, model, truncator }
     }
 }
 
 #[async_trait]
 impl Embedder for OllamaEmbedder {
     async fn embed(&self, inputs: Vec<String>) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        let inputs: Vec<String> = match &self.truncator {
+            Some(t) => inputs.into_iter().map(|s| t.truncate_if_needed(&s)).collect(),
+            None => inputs,
+        };
         let req = GenerateEmbeddingsRequest::new(self.model.clone(), inputs.into());
         let res = self.client.generate_embeddings(req).await
             .map_err(|e| EmbeddingError::classify(e.into()))?;
@@ -247,8 +279,8 @@ pub async fn create_embedder(
             let api_key = resolve_api_key(pool, key_name).await?;
             Ok(Box::new(OpenAIEmbedder::new(api_key, model.clone(), *dimensions, base_url.clone())))
         }
-        EmbeddingConfig::Ollama { model, base_url } => {
-            Ok(Box::new(OllamaEmbedder::new(base_url.clone(), model.clone())))
+        EmbeddingConfig::Ollama { model, base_url, max_tokens } => {
+            Ok(Box::new(OllamaEmbedder::new(base_url.clone(), model.clone(), *max_tokens)))
         }
         _ => Err(anyhow::anyhow!("Unsupported embedding provider")),
     }
@@ -380,6 +412,48 @@ mod tests {
         let tokens = vec![1, 8, 2, 5, 9, 5, 6, 11];
         let result = batch_indices(&tokens, 5, Some(20)).unwrap();
         assert_eq!(result, vec![(0, 4), (4, 7), (7, 8)]);
+    }
+
+    // --- TokenTruncator ---
+
+    #[test]
+    fn test_token_truncator_count_tokens() {
+        let t = TokenTruncator::from_cl100k(100);
+        assert_eq!(t.count_tokens("hello world"), 2);
+        assert_eq!(t.count_tokens(""), 0);
+    }
+
+    #[test]
+    fn test_token_truncator_truncate_long_text() {
+        let t = TokenTruncator::from_cl100k(10);
+        let long_text = "word ".repeat(100); // ~100 tokens
+        let truncated = t.truncate_if_needed(&long_text);
+        assert!(t.count_tokens(&truncated) <= 10);
+    }
+
+    #[test]
+    fn test_token_truncator_no_truncation_for_short_text() {
+        let t = TokenTruncator::from_cl100k(1000);
+        let short = "This is short.";
+        assert_eq!(t.truncate_if_needed(short), short);
+    }
+
+    // --- Ollama truncation ---
+
+    #[test]
+    fn test_ollama_embedder_created_with_max_tokens() {
+        let embedder = OllamaEmbedder::new(None, "nomic-embed-text".to_string(), Some(10));
+        assert!(embedder.truncator.is_some());
+        let t = embedder.truncator.as_ref().unwrap();
+        let long_text = "word ".repeat(100);
+        let truncated = t.truncate_if_needed(&long_text);
+        assert!(t.count_tokens(&truncated) <= 10);
+    }
+
+    #[test]
+    fn test_ollama_embedder_no_truncator_without_max_tokens() {
+        let embedder = OllamaEmbedder::new(None, "nomic-embed-text".to_string(), None);
+        assert!(embedder.truncator.is_none());
     }
 
     // --- resolve_api_key (env var path only, DB path tested in integration) ---

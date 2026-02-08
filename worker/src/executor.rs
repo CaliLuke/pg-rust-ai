@@ -494,6 +494,7 @@ impl Executor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::EmbeddingConfig;
 
     #[test]
     fn test_deserialize_chunker_config_none() {
@@ -565,5 +566,33 @@ mod tests {
         let json = r#"{"implementation": "some_future_splitter", "foo": 42}"#;
         let config: ChunkerConfig = serde_json::from_str(json).unwrap();
         assert!(matches!(config, ChunkerConfig::None));
+    }
+
+    #[test]
+    fn test_deserialize_ollama_config_with_max_tokens() {
+        let json = r#"{"implementation": "ollama", "model": "nomic-embed-text", "base_url": "http://localhost:11434", "max_tokens": 2048}"#;
+        let config: EmbeddingConfig = serde_json::from_str(json).unwrap();
+        match config {
+            EmbeddingConfig::Ollama { model, base_url, max_tokens } => {
+                assert_eq!(model, "nomic-embed-text");
+                assert_eq!(base_url, Some("http://localhost:11434".to_string()));
+                assert_eq!(max_tokens, Some(2048));
+            }
+            _ => panic!("Expected Ollama, got {:?}", config),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_ollama_config_without_max_tokens() {
+        let json = r#"{"implementation": "ollama", "model": "nomic-embed-text"}"#;
+        let config: EmbeddingConfig = serde_json::from_str(json).unwrap();
+        match config {
+            EmbeddingConfig::Ollama { model, base_url, max_tokens } => {
+                assert_eq!(model, "nomic-embed-text");
+                assert!(base_url.is_none());
+                assert!(max_tokens.is_none());
+            }
+            _ => panic!("Expected Ollama, got {:?}", config),
+        }
     }
 }

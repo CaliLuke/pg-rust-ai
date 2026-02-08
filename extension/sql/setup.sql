@@ -55,7 +55,8 @@ CREATE OR REPLACE FUNCTION ai.embedding_ollama(
     dimensions int4,
     base_url text DEFAULT NULL,
     options jsonb DEFAULT NULL,
-    keep_alive text DEFAULT NULL
+    keep_alive text DEFAULT NULL,
+    max_tokens int4 DEFAULT NULL
 ) RETURNS jsonb AS $$
     SELECT json_strip_nulls(json_build_object(
         'implementation', 'ollama',
@@ -64,7 +65,8 @@ CREATE OR REPLACE FUNCTION ai.embedding_ollama(
         'dimensions', dimensions,
         'base_url', base_url,
         'options', options,
-        'keep_alive', keep_alive
+        'keep_alive', keep_alive,
+        'max_tokens', max_tokens
     ))::jsonb
 $$ LANGUAGE sql IMMUTABLE;
 

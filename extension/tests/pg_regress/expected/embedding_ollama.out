@@ -1,0 +1,28 @@
+-- Test ai.embedding_ollama() config helper
+-- Default: no max_tokens
+SELECT ai.embedding_ollama('nomic-embed-text', 768);
+                                             embedding_ollama                                             
+----------------------------------------------------------------------------------------------------------
+ {"model": "nomic-embed-text", "dimensions": 768, "config_type": "embedding", "implementation": "ollama"}
+(1 row)
+
+-- With max_tokens
+SELECT ai.embedding_ollama('nomic-embed-text', 768, max_tokens => 2048);
+                                                       embedding_ollama                                                       
+------------------------------------------------------------------------------------------------------------------------------
+ {"model": "nomic-embed-text", "dimensions": 768, "max_tokens": 2048, "config_type": "embedding", "implementation": "ollama"}
+(1 row)
+
+-- With all params
+SELECT ai.embedding_ollama(
+    'nomic-embed-text', 768,
+    base_url   => 'http://localhost:11434',
+    options    => '{"temperature": 0.1}'::jsonb,
+    keep_alive => '5m',
+    max_tokens => 4096
+);
+                                                                                                    embedding_ollama                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"model": "nomic-embed-text", "options": {"temperature": 0.1}, "base_url": "http://localhost:11434", "dimensions": 768, "keep_alive": "5m", "max_tokens": 4096, "config_type": "embedding", "implementation": "ollama"}
+(1 row)
+

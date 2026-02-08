@@ -63,6 +63,8 @@ pub enum EmbeddingConfig {
     Ollama {
         model: String,
         base_url: Option<String>,
+        #[serde(default)]
+        max_tokens: Option<usize>,
     },
     #[serde(other)]
     Unknown,
