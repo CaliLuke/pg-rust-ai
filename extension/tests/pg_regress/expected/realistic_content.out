@@ -1,0 +1,187 @@
+-- Test vectorizer with realistic multi-paragraph content
+-- This test validates:
+--   1. Vectorizer works with chunking_recursive_character_text_splitter
+--   2. Queue is populated correctly for realistic content
+--   3. Target table schema is correct with vector column
+--   4. View joins source and target correctly
+--   5. Triggers fire on INSERT/UPDATE/DELETE with realistic data
+--   6. drop_vectorizer cleans up all objects
+-------------------------------------------------------------------------------
+-- Setup: create a source table with realistic blog content
+-------------------------------------------------------------------------------
+CREATE TABLE public.tech_articles (
+    id serial PRIMARY KEY,
+    title text NOT NULL,
+    content text NOT NULL,
+    author text NOT NULL,
+    published_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO public.tech_articles (title, content, author) VALUES
+    ('Introduction to Vector Databases',
+     'Vector databases are specialized systems designed to store and query high-dimensional vectors efficiently. They enable similarity search at scale, which is essential for modern AI applications including recommendation systems and semantic search.',
+     'Alice Chen'),
+    ('Building RAG Applications',
+     'Retrieval-Augmented Generation combines large language models with external knowledge retrieval. By embedding documents into vector space and retrieving relevant context at query time, RAG systems produce more accurate and grounded responses.',
+     'Bob Smith'),
+    ('PostgreSQL as a Vector Store',
+     'With the pgvector extension, PostgreSQL becomes a capable vector database. It supports exact and approximate nearest-neighbor search using IVFFlat and HNSW indexes, making it practical for teams that want to avoid adding another database to their stack.',
+     'Carol Davis'),
+    ('Text Chunking Strategies',
+     'Effective chunking is crucial for embedding quality. Recursive character text splitting preserves semantic boundaries by trying larger separators first. Chunk size and overlap parameters must be tuned based on the embedding model and use case.',
+     'Dave Wilson'),
+    ('Embedding Model Selection',
+     'Choosing the right embedding model depends on your use case. OpenAI text-embedding-3-small offers good quality at low cost. For on-premises deployments, open-source models like nomic-embed-text provide competitive performance without API dependencies.',
+     'Eve Johnson');
+-------------------------------------------------------------------------------
+-- Test 1: create_vectorizer with chunking and realistic content
+-------------------------------------------------------------------------------
+SELECT ai.create_vectorizer(
+    'public.tech_articles'::regclass,
+    loading    => ai.loading_column('content'),
+    embedding  => ai.embedding_openai('text-embedding-3-small', 1536),
+    chunking   => ai.chunking_recursive_character_text_splitter(
+        chunk_size    => 200,
+        chunk_overlap => 50
+    ),
+    formatting => ai.formatting_python_template('$title: $chunk')
+);
+ create_vectorizer
+-------------------
+                 5
+(1 row)
+
+-- Verify all 5 existing rows were enqueued
+SELECT count(*) AS queued_rows FROM ai._vectorizer_q_5;
+ queued_rows
+-------------
+           5
+(1 row)
+
+-- Verify target table has correct columns (embedding_uuid, id, chunk_seq, chunk, embedding)
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'tech_articles_embedding_store'
+ORDER BY ordinal_position;
+   column_name    |   data_type
+------------------+---------------
+ embedding_uuid   | uuid
+ id               | integer
+ chunk_seq        | integer
+ chunk            | text
+ embedding        | USER-DEFINED
+(5 rows)
+
+-- Verify view exists and has columns from both source and target
+SELECT count(*) AS view_col_count
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'tech_articles_embedding';
+ view_col_count
+----------------
+              9
+(1 row)
+
+-- Verify the vectorizer config was stored correctly
+SELECT
+    v.source_schema,
+    v.source_table,
+    v.config -> 'chunking' ->> 'implementation' AS chunking_impl,
+    (v.config -> 'chunking' ->> 'chunk_size')::int AS chunk_size,
+    (v.config -> 'chunking' ->> 'chunk_overlap')::int AS chunk_overlap,
+    v.config -> 'formatting' ->> 'implementation' AS formatting_impl,
+    v.config -> 'formatting' ->> 'template' AS formatting_template
+FROM ai.vectorizer v
+WHERE v.id = 5;
+ source_schema |  source_table  |            chunking_impl             | chunk_size | chunk_overlap | formatting_impl |  formatting_template
+---------------+----------------+--------------------------------------+------------+---------------+-----------------+-----------------------
+ public        | tech_articles  | recursive_character_text_splitter    |        200 |            50 | python_template | $title: $chunk
+(1 row)
+
+-------------------------------------------------------------------------------
+-- Test 2: triggers fire on INSERT/UPDATE/DELETE
+-------------------------------------------------------------------------------
+-- INSERT: new row should appear in queue
+INSERT INTO public.tech_articles (title, content, author) VALUES
+    ('Monitoring Vector Search', 'Track query latency and recall metrics to maintain search quality.', 'Frank Lee');
+SELECT count(*) AS queued_after_insert FROM ai._vectorizer_q_5;
+ queued_after_insert
+---------------------
+                   6
+(1 row)
+
+-- UPDATE content: should re-queue for re-embedding
+UPDATE public.tech_articles SET content = 'Updated: Vector databases now support hybrid search combining dense vectors with sparse keyword matching.' WHERE id = 1;
+SELECT count(*) AS queued_after_update FROM ai._vectorizer_q_5;
+ queued_after_update
+---------------------
+                   7
+(1 row)
+
+-- UPDATE non-content column: should still re-queue (any non-PK change triggers)
+UPDATE public.tech_articles SET author = 'Alice Chen-Wu' WHERE id = 2;
+SELECT count(*) AS queued_after_author_update FROM ai._vectorizer_q_5;
+ queued_after_author_update
+----------------------------
+                          8
+(1 row)
+
+-- DELETE: should clean up target table entries (target is empty so just verify no error)
+DELETE FROM public.tech_articles WHERE id = 5;
+-- Verify queue count after delete (delete doesn't add to queue, just removes from target)
+SELECT count(*) AS queued_after_delete FROM ai._vectorizer_q_5;
+ queued_after_delete
+---------------------
+                   8
+(1 row)
+
+-------------------------------------------------------------------------------
+-- Test 3: verify queue_pending function
+-------------------------------------------------------------------------------
+SELECT ai.vectorizer_queue_pending(5) AS pending_count;
+ pending_count
+---------------
+             8
+(1 row)
+
+-------------------------------------------------------------------------------
+-- Test 4: failed queue table exists and is empty
+-------------------------------------------------------------------------------
+SELECT count(*) AS failed_count FROM ai._vectorizer_q_failed_5;
+ failed_count
+--------------
+            0
+(1 row)
+
+-------------------------------------------------------------------------------
+-- Cleanup
+-------------------------------------------------------------------------------
+SELECT ai.drop_vectorizer(5, drop_all => true);
+ drop_vectorizer
+-----------------
+
+(1 row)
+
+-- Verify everything was cleaned up
+SELECT count(*) AS vectorizer_after_drop FROM ai.vectorizer WHERE id = 5;
+ vectorizer_after_drop
+-----------------------
+                     0
+(1 row)
+
+SELECT count(*) AS target_exists
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = 'tech_articles_embedding_store';
+ target_exists
+---------------
+             0
+(1 row)
+
+SELECT count(*) AS view_exists
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = 'tech_articles_embedding';
+ view_exists
+-------------
+           0
+(1 row)
+
+-- Teardown source table
+DROP TABLE public.tech_articles CASCADE;

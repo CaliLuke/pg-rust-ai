@@ -5,6 +5,7 @@ use sqlx::{Pool, Postgres, Row};
 use std::time::Duration;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PostgresImage;
+use tokio_util::sync::CancellationToken;
 use worker::Worker;
 
 async fn start_postgres() -> (testcontainers::ContainerAsync<PostgresImage>, Pool<Postgres>) {
@@ -49,6 +50,7 @@ async fn test_end_to_end_vectorization() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -86,6 +88,7 @@ async fn test_worker_no_vectorizers() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -106,6 +109,7 @@ async fn test_worker_no_pgai_schema() {
         true,
         vec![],
         true, // exit_on_error = true
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -131,6 +135,7 @@ async fn test_worker_no_pgai_schema_no_exit_on_error() {
         true,
         vec![],
         false, // exit_on_error = false
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -157,6 +162,7 @@ async fn test_worker_missing_vectorizer_ids() {
         true,
         vec![999],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -194,6 +200,7 @@ async fn test_worker_once_processes_and_exits() {
         true, // once = true
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -245,6 +252,7 @@ async fn test_chunking_none_end_to_end() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -300,6 +308,7 @@ async fn test_recursive_chunking_end_to_end() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -357,6 +366,7 @@ async fn test_empty_content_skips_embedding() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -427,6 +437,7 @@ async fn test_null_content_skips_embedding() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -495,6 +506,7 @@ async fn test_large_content_splits_into_multiple_batches() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -546,6 +558,7 @@ async fn test_missing_api_key_fails_with_clear_error() {
         true,
         vec![],
         true, // exit_on_error
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -593,6 +606,7 @@ async fn test_embedding_error_recorded_to_errors_table() {
         true,
         vec![],
         false, // exit_on_error = false so we don't crash
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -712,6 +726,7 @@ async fn test_composite_primary_key() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -783,6 +798,7 @@ async fn test_disabled_vectorizer_is_skipped() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -852,6 +868,7 @@ async fn test_disabled_vectorizer_does_not_block_others() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -926,6 +943,7 @@ async fn test_source_table_with_reserved_column_names() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -971,6 +989,7 @@ async fn test_character_chunking_end_to_end() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1025,6 +1044,7 @@ async fn test_batch_size_processes_all_rows() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1091,6 +1111,7 @@ async fn test_multiple_vectorizers_in_one_run() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1147,6 +1168,7 @@ async fn test_specific_vectorizer_id_filtering() {
         true,
         vec![id1],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1192,6 +1214,7 @@ async fn test_rerun_is_noop() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1212,6 +1235,7 @@ async fn test_rerun_is_noop() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1256,6 +1280,7 @@ async fn test_mock_server_receives_correct_input() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1333,6 +1358,7 @@ async fn test_schema_evolution_extra_columns_on_destination() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1389,6 +1415,7 @@ async fn test_schema_evolution_drop_readd_embedding_column() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1431,6 +1458,7 @@ async fn test_schema_evolution_drop_readd_embedding_column() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1505,6 +1533,7 @@ async fn test_same_table_column_destination() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1567,6 +1596,7 @@ async fn test_ollama_embedding_end_to_end() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1624,6 +1654,7 @@ async fn test_ollama_embedding_different_texts_produce_different_embeddings() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1690,6 +1721,7 @@ async fn test_ollama_embedding_with_chunking() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1746,6 +1778,7 @@ async fn test_concurrency_processes_all_rows() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1793,6 +1826,7 @@ async fn test_concurrency_no_duplicate_embeddings() {
         true,
         vec![],
         true,
+        CancellationToken::new(),
     )
     .await
     .unwrap();
@@ -1813,4 +1847,295 @@ async fn test_concurrency_no_duplicate_embeddings() {
     .await
     .unwrap();
     assert_eq!(distinct, total, "No duplicate (id, chunk_seq) pairs should exist");
+}
+
+// ============================================================
+// Full pipeline test using real extension SQL
+// ============================================================
+
+#[tokio::test]
+async fn test_full_pipeline_with_extension_sql() {
+    // Start pgvector-enabled container and load the real extension SQL
+    let (node, pool) = start_pgvector_postgres().await;
+    let port = node.get_host_port_ipv4(5432).await.unwrap();
+    load_extension_sql(&pool).await;
+
+    // Create a source table with realistic content
+    sqlx::query(
+        "CREATE TABLE public.articles (
+            id serial PRIMARY KEY,
+            title text NOT NULL,
+            content text NOT NULL,
+            author text NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO public.articles (title, content, author) VALUES
+            ('Getting Started with Rust', 'Rust is a systems programming language focused on safety and performance.', 'Alice'),
+            ('PostgreSQL Tips', 'PostgreSQL offers powerful indexing and full-text search capabilities.', 'Bob'),
+            ('Vector Embeddings 101', 'Embeddings transform text into dense numerical representations for similarity search.', 'Carol')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Start mock embedding server
+    let (mock_url, _log) = start_mock_embedding_server().await;
+    std::env::set_var("OPENAI_API_KEY", "test-key");
+
+    // Call the REAL ai.create_vectorizer() function
+    let vectorizer_id: i32 = sqlx::query_scalar(
+        "SELECT ai.create_vectorizer(
+            'public.articles'::regclass,
+            loading    => ai.loading_column('content'),
+            embedding  => ai.embedding_openai('text-embedding-3-small', 3, base_url => $1),
+            chunking   => ai.chunking_none(),
+            formatting => ai.formatting_chunk_value()
+        )",
+    )
+    .bind(&mock_url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert!(vectorizer_id > 0, "Vectorizer ID should be positive");
+
+    // Verify queue was populated with existing rows
+    let queue_count: i64 =
+        sqlx::query_scalar("SELECT ai.vectorizer_queue_pending($1)")
+            .bind(vectorizer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_count, 3, "Queue should have 3 rows from existing data");
+
+    // Run the worker
+    let worker = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![vectorizer_id],
+        true,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    worker.run().await.unwrap();
+
+    // Verify queue is drained
+    let queue_after: i64 =
+        sqlx::query_scalar("SELECT ai.vectorizer_queue_pending($1)")
+            .bind(vectorizer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_after, 0, "Queue should be empty after worker run");
+
+    // Verify embeddings were created in the target table
+    let emb_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.articles_embedding_store")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(emb_count, 3, "Should have 3 embeddings");
+
+    // Verify embedding dimensions
+    let emb: Vec<f32> = sqlx::query_scalar(
+        "SELECT embedding::float4[] FROM public.articles_embedding_store WHERE id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(emb.len(), 3, "Embedding should have 3 dimensions");
+
+    // Verify the view works (joins source + embeddings)
+    let view_rows = sqlx::query(
+        "SELECT title, author, chunk, embedding_uuid FROM public.articles_embedding ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(view_rows.len(), 3, "View should return 3 rows");
+    let first_title: &str = view_rows[0].get("title");
+    assert_eq!(first_title, "Getting Started with Rust");
+
+    // Test trigger: INSERT a new row → should be enqueued
+    sqlx::query(
+        "INSERT INTO public.articles (title, content, author) VALUES ('New Post', 'Fresh content about AI.', 'Dave')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let queue_after_insert: i64 =
+        sqlx::query_scalar("SELECT ai.vectorizer_queue_pending($1)")
+            .bind(vectorizer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_after_insert, 1, "New row should be enqueued");
+
+    // Run worker again to process the new row
+    let worker2 = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![vectorizer_id],
+        true,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    worker2.run().await.unwrap();
+
+    let emb_count_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.articles_embedding_store")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(emb_count_after, 4, "Should have 4 embeddings after insert");
+
+    // Test trigger: UPDATE content → should be re-enqueued
+    sqlx::query("UPDATE public.articles SET content = 'Updated content about Rust safety.' WHERE id = 1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let queue_after_update: i64 =
+        sqlx::query_scalar("SELECT ai.vectorizer_queue_pending($1)")
+            .bind(vectorizer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_after_update, 1, "Updated row should be re-enqueued");
+
+    // Run worker to process the update
+    let worker3 = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![vectorizer_id],
+        true,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    worker3.run().await.unwrap();
+
+    // Count should still be 4 (updated, not duplicated)
+    let emb_count_final: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.articles_embedding_store")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(emb_count_final, 4, "Should still have 4 embeddings after update");
+
+    // Cleanup
+    sqlx::query("SELECT ai.drop_vectorizer($1, drop_all => true)")
+        .bind(vectorizer_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+}
+
+#[tokio::test]
+async fn test_full_pipeline_with_chunking() {
+    let (node, pool) = start_pgvector_postgres().await;
+    let port = node.get_host_port_ipv4(5432).await.unwrap();
+    load_extension_sql(&pool).await;
+
+    // Create source with long content that will be chunked
+    sqlx::query(
+        "CREATE TABLE public.long_docs (
+            id serial PRIMARY KEY,
+            content text NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let long_content = "This is a paragraph about databases. ".repeat(30);
+    sqlx::query("INSERT INTO public.long_docs (content) VALUES ($1)")
+        .bind(&long_content)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (mock_url, _log) = start_mock_embedding_server().await;
+    std::env::set_var("OPENAI_API_KEY", "test-key");
+
+    let vectorizer_id: i32 = sqlx::query_scalar(
+        "SELECT ai.create_vectorizer(
+            'public.long_docs'::regclass,
+            loading    => ai.loading_column('content'),
+            embedding  => ai.embedding_openai('text-embedding-3-small', 3, base_url => $1),
+            chunking   => ai.chunking_recursive_character_text_splitter(
+                chunk_size => 100,
+                chunk_overlap => 0
+            ),
+            formatting => ai.formatting_chunk_value()
+        )",
+    )
+    .bind(&mock_url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let worker = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![vectorizer_id],
+        true,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    worker.run().await.unwrap();
+
+    // Should produce multiple chunks from long content
+    let chunk_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.long_docs_embedding_store")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        chunk_count > 1,
+        "Long content should produce multiple chunks, got {}",
+        chunk_count
+    );
+
+    // Verify sequential chunk_seq values
+    let rows = sqlx::query(
+        "SELECT chunk_seq, chunk FROM public.long_docs_embedding_store ORDER BY chunk_seq",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    for (i, row) in rows.iter().enumerate() {
+        let chunk_seq: i32 = row.get("chunk_seq");
+        assert_eq!(chunk_seq, i as i32, "chunk_seq should be sequential");
+    }
+
+    // Queue should be empty
+    let queue_after: i64 =
+        sqlx::query_scalar("SELECT ai.vectorizer_queue_pending($1)")
+            .bind(vectorizer_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_after, 0, "Queue should be empty");
+
+    sqlx::query("SELECT ai.drop_vectorizer($1, drop_all => true)")
+        .bind(vectorizer_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
 }

@@ -2,6 +2,9 @@ use axum::{routing::post, Json, Router};
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::{Arc, Mutex};
+use testcontainers::core::{IntoContainerPort, WaitFor};
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 use tokio::net::TcpListener;
 
 pub async fn setup_ai_schema(pool: &Pool<Postgres>) {
@@ -364,4 +367,67 @@ pub async fn start_mock_embedding_server() -> (String, Arc<Mutex<Vec<serde_json:
     });
 
     (mock_url, request_log)
+}
+
+/// Start a PostgreSQL container with pgvector pre-installed.
+/// Returns (container, pool).
+pub async fn start_pgvector_postgres() -> (
+    testcontainers::ContainerAsync<GenericImage>,
+    Pool<Postgres>,
+) {
+    let image = GenericImage::new("pgvector/pgvector", "pg18")
+        .with_exposed_port(5432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_env_var("POSTGRES_PASSWORD", "postgres")
+        .with_env_var("POSTGRES_USER", "postgres")
+        .with_env_var("POSTGRES_DB", "postgres");
+
+    let container = image.start().await.expect("pgvector container started");
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let db_url = format!("postgres://postgres:postgres@localhost:{}/postgres", port);
+
+    // pgvector image may need a moment after "ready to accept connections"
+    let pool = loop {
+        match Pool::<Postgres>::connect(&db_url).await {
+            Ok(p) => break p,
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(200)).await,
+        }
+    };
+
+    (container, pool)
+}
+
+/// Load the real extension SQL (setup.sql) into a database that has pgvector.
+/// This simulates what `CREATE EXTENSION pgai` does.
+pub async fn load_extension_sql(pool: &Pool<Postgres>) {
+    // pgvector must be installed first
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+        .execute(pool)
+        .await
+        .unwrap();
+
+    // Load the real setup.sql that defines the ai schema, functions, etc.
+    let sql = include_str!("../../../extension/sql/setup.sql");
+    sqlx::raw_sql(sql).execute(pool).await.unwrap();
+
+    // The worker also checks for pgai_lib_version to verify pgai is installed.
+    // This table is part of the Python extension, not the Rust one, so we create
+    // it manually for the test.
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS ai.pgai_lib_version (
+            name TEXT PRIMARY KEY,
+            version TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO ai.pgai_lib_version (name, version) VALUES ('ai', '0.0.0-test')")
+        .execute(pool)
+        .await
+        .unwrap();
 }
