@@ -18,7 +18,7 @@ pub struct RecursiveCharacterTextSplitter {
     pub chunk_overlap: usize,
     pub keep_separator: bool,
     pub strip_whitespace: bool,
-    pub length_fn: Option<Box<dyn Fn(&str) -> usize + Send + Sync>>,
+    pub length_fn: Option<crate::LengthFn>,
 }
 
 impl RecursiveCharacterTextSplitter {

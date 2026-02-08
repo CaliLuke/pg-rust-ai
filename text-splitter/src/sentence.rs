@@ -15,7 +15,7 @@ pub struct SentenceChunker {
     pub delimiters: Vec<String>,
     pub min_characters_per_sentence: usize,
     pub strip_whitespace: bool,
-    pub length_fn: Option<Box<dyn Fn(&str) -> usize + Send + Sync>>,
+    pub length_fn: Option<crate::LengthFn>,
 }
 
 impl SentenceChunker {

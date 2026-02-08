@@ -26,6 +26,7 @@ impl Worker {
         cancel: CancellationToken,
     ) -> Result<Self> {
         let pool = Pool::connect(db_url).await?;
+        info!("Connected to database");
         Ok(Self {
             pool,
             poll_interval,
@@ -115,6 +116,7 @@ impl Worker {
             warn!("No vectorizers found");
             return Ok(());
         }
+        info!(count = vectorizer_ids.len(), "Found vectorizers");
 
         // Load all vectorizers, filtering out disabled and failed-to-load ones
         let mut vectorizers = Vec::new();
@@ -233,7 +235,7 @@ impl Worker {
 
 }
 
-#[tracing::instrument(skip(pool, cancel, tracking), fields(vectorizer_id = vectorizer.id))]
+#[tracing::instrument(skip(pool, cancel, tracking), fields(vectorizer_id = vectorizer.id, source = %format!("{}.{}", vectorizer.source_schema, vectorizer.source_table)))]
 async fn process_vectorizer(
     pool: Pool<Postgres>,
     cancel: CancellationToken,

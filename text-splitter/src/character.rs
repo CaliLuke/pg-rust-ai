@@ -12,7 +12,7 @@ pub struct CharacterTextSplitter {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub strip_whitespace: bool,
-    pub length_fn: Option<Box<dyn Fn(&str) -> usize + Send + Sync>>,
+    pub length_fn: Option<crate::LengthFn>,
 }
 
 impl CharacterTextSplitter {

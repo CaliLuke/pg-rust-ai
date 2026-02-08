@@ -7,7 +7,7 @@ use async_openai::{
 use ollama_rs::Ollama;
 use ollama_rs::generation::embeddings::request::GenerateEmbeddingsRequest;
 use tiktoken_rs::CoreBPE;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use crate::errors::EmbeddingError;
 use crate::models::EmbeddingConfig;
 
@@ -186,6 +186,7 @@ impl Embedder for OpenAIEmbedder {
 
         for (start, end) in batches {
             let batch_inputs: Vec<String> = inputs[start..end].to_vec();
+            let batch_size = batch_inputs.len();
 
             let mut request_builder = CreateEmbeddingRequestArgs::default();
             request_builder.model(&self.model).input(batch_inputs);
@@ -196,8 +197,15 @@ impl Embedder for OpenAIEmbedder {
 
             let request = request_builder.build()
                 .map_err(|e| EmbeddingError::Permanent(e.into()))?;
+            let start_time = std::time::Instant::now();
             let response = self.client.embeddings().create(request).await
                 .map_err(EmbeddingError::from_openai_error)?;
+            debug!(
+                model = %self.model,
+                batch_size,
+                elapsed_ms = start_time.elapsed().as_millis() as u64,
+                "OpenAI embedding batch complete"
+            );
 
             let mut batch_embeddings: Vec<Vec<f32>> =
                 response.data.into_iter().map(|d| d.embedding).collect();
@@ -234,9 +242,17 @@ impl Embedder for OllamaEmbedder {
             Some(t) => inputs.into_iter().map(|s| t.truncate_if_needed(&s)).collect(),
             None => inputs,
         };
+        let input_count = inputs.len();
         let req = GenerateEmbeddingsRequest::new(self.model.clone(), inputs.into());
+        let start = std::time::Instant::now();
         let res = self.client.generate_embeddings(req).await
             .map_err(|e| EmbeddingError::classify(e.into()))?;
+        debug!(
+            model = %self.model,
+            input_count,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            "Ollama embedding complete"
+        );
         Ok(res.embeddings)
     }
 }
@@ -277,9 +293,11 @@ pub async fn create_embedder(
         EmbeddingConfig::OpenAI { model, dimensions, api_key_name, base_url } => {
             let key_name = api_key_name.as_deref().unwrap_or("OPENAI_API_KEY");
             let api_key = resolve_api_key(pool, key_name).await?;
+            info!(provider = "openai", model = %model, "Created embedder");
             Ok(Box::new(OpenAIEmbedder::new(api_key, model.clone(), *dimensions, base_url.clone())))
         }
         EmbeddingConfig::Ollama { model, base_url, max_tokens } => {
+            info!(provider = "ollama", model = %model, max_tokens = ?max_tokens, "Created embedder");
             Ok(Box::new(OllamaEmbedder::new(base_url.clone(), model.clone(), *max_tokens)))
         }
         _ => Err(anyhow::anyhow!("Unsupported embedding provider")),

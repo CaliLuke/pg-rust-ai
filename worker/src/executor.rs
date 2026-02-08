@@ -4,7 +4,7 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, error, warn};
+use tracing::{info, error, warn, debug};
 use crate::errors::EmbeddingError;
 use crate::models::{Vectorizer, LoadingConfig, DestinationConfig, ChunkerConfig};
 use crate::embedder::{create_embedder, Embedder};
@@ -52,9 +52,20 @@ impl Executor {
             }
             let items_processed = self.do_batch().await?;
             if items_processed == 0 {
+                debug!(
+                    vectorizer_id = self.vectorizer.id,
+                    total_processed,
+                    "Queue drained"
+                );
                 break;
             }
             total_processed += items_processed;
+            info!(
+                vectorizer_id = self.vectorizer.id,
+                batch_items = items_processed,
+                total_processed,
+                "Batch complete"
+            );
         }
 
         Ok(total_processed)
@@ -117,6 +128,13 @@ impl Executor {
             }
         }
 
+        debug!(
+            vectorizer_id = self.vectorizer.id,
+            items = items_with_content.len(),
+            total_chunks = all_chunks.len(),
+            "Chunking complete"
+        );
+
         if all_chunks.is_empty() {
             return Ok(items.len() as i32);
         }
@@ -125,7 +143,13 @@ impl Executor {
             Ok(embs) => embs,
             Err(e) => {
                 let err_msg = e.to_string();
-                error!("Embedding failed for vectorizer {}: {}", self.vectorizer.id, err_msg);
+                if e.is_transient() {
+                    error!(vectorizer_id = self.vectorizer.id,
+                        "Transient embedding error after all retries exhausted: {}", e);
+                } else {
+                    error!(vectorizer_id = self.vectorizer.id,
+                        "Permanent embedding error (no retry): {}", e);
+                }
                 self.tracking.save_vectorizer_error(Some(self.vectorizer.id), &err_msg).await;
                 if let Err(record_err) = self.record_error(
                     "embedding provider failed",
@@ -139,6 +163,12 @@ impl Executor {
             }
         };
         self.write_results(&items_with_content, &item_chunk_counts, &all_chunks, &embeddings).await?;
+        debug!(
+            vectorizer_id = self.vectorizer.id,
+            items = items_with_content.len(),
+            chunks = all_chunks.len(),
+            "Results written to database"
+        );
         self.tracking.save_vectorizer_success(self.vectorizer.id, items.len() as i32).await;
 
         Ok(items.len() as i32)

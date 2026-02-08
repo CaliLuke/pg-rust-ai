@@ -30,56 +30,89 @@ struct Args {
     /// Specific vectorizer IDs to run (comma-separated)
     #[arg(long, value_delimiter = ',')]
     vectorizer_ids: Vec<i32>,
+
+    /// Log output format: "text" or "json"
+    #[arg(long, default_value = "text")]
+    log_format: String,
+}
+
+/// Redact the password in a database connection URL.
+fn redact_db_url(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(mut parsed) => {
+            if parsed.password().is_some() {
+                let _ = parsed.set_password(Some("***"));
+            }
+            parsed.to_string()
+        }
+        Err(_) => "***".to_string(),
+    }
 }
 
 /// Initialize telemetry: fmt layer + env filter + optional OTLP traces.
 /// Returns the TracerProvider if OTLP was configured (caller must shut it down).
-fn init_telemetry() -> Option<SdkTracerProvider> {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    let fmt_layer = tracing_subscriber::fmt::layer();
-
+fn init_telemetry(json: bool) -> Option<SdkTracerProvider> {
     let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
 
-    if let Some(endpoint) = otel_endpoint {
+    let provider = otel_endpoint.map(|endpoint| {
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_endpoint(endpoint)
             .build()
             .expect("failed to create OTLP exporter");
 
-        let provider = SdkTracerProvider::builder()
+        SdkTracerProvider::builder()
             .with_batch_exporter(exporter)
-            .build();
+            .build()
+    });
 
-        let tracer = provider.tracer("pgai-worker");
-        let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .with(otel_layer)
-            .init();
-
-        info!("OpenTelemetry tracing enabled");
-        Some(provider)
-    } else {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(fmt_layer)
-            .init();
-
-        None
+    // Each combination of (json, otel) needs its own subscriber stack because
+    // the concrete types differ and tracing_subscriber is generic.
+    match (json, &provider) {
+        (true, Some(p)) => {
+            let tracer = p.tracer("pgai-worker");
+            tracing_subscriber::registry()
+                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+                .with(tracing_subscriber::fmt::layer().json())
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .init();
+        }
+        (false, Some(p)) => {
+            let tracer = p.tracer("pgai-worker");
+            tracing_subscriber::registry()
+                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+                .with(tracing_subscriber::fmt::layer())
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .init();
+        }
+        (true, None) => {
+            tracing_subscriber::registry()
+                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+                .with(tracing_subscriber::fmt::layer().json())
+                .init();
+        }
+        (false, None) => {
+            tracing_subscriber::registry()
+                .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+                .with(tracing_subscriber::fmt::layer())
+                .init();
+        }
     }
+
+    if provider.is_some() {
+        info!("OpenTelemetry tracing enabled");
+    }
+
+    provider
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
-    let tracer_provider = init_telemetry();
-
     let args = Args::parse();
+    let tracer_provider = init_telemetry(args.log_format == "json");
+
     let cancel = CancellationToken::new();
 
     // Spawn signal handler
@@ -109,6 +142,16 @@ async fn main() -> Result<()> {
     });
 
     info!("Starting pgai worker-rs");
+
+    info!(
+        db_url = %redact_db_url(&args.db_url),
+        poll_interval_secs = args.poll_interval,
+        once = args.once,
+        exit_on_error = args.exit_on_error,
+        vectorizer_ids = ?args.vectorizer_ids,
+        log_format = %args.log_format,
+        "Worker configuration"
+    );
 
     let worker = worker::Worker::new(
         &args.db_url,

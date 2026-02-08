@@ -223,6 +223,7 @@ async fn heartbeat_loop(
     interval: Duration,
 ) {
     let mut consecutive_failures = 0u32;
+    let mut first_heartbeat = true;
     const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 
     loop {
@@ -246,10 +247,15 @@ async fn heartbeat_loop(
         {
             Ok(_) => {
                 consecutive_failures = 0;
-                debug!(
-                    "Heartbeat sent: worker={}, successes={}, errors={}",
-                    worker_id, successes, errors
-                );
+                if first_heartbeat {
+                    info!("First heartbeat sent: worker={}", worker_id);
+                    first_heartbeat = false;
+                } else {
+                    debug!(
+                        "Heartbeat sent: worker={}, successes={}, errors={}",
+                        worker_id, successes, errors
+                    );
+                }
             }
             Err(e) => {
                 consecutive_failures += 1;

@@ -16,7 +16,7 @@ pub struct SemchunkSplitter {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub strip_whitespace: bool,
-    pub length_fn: Option<Box<dyn Fn(&str) -> usize + Send + Sync>>,
+    pub length_fn: Option<crate::LengthFn>,
 }
 
 /// The hierarchy of splitter levels, ordered from most semantic to least.
@@ -217,7 +217,7 @@ fn find_longest_sequence(text: &str, ch: char) -> Option<String> {
     }
 
     if max_len > 0 {
-        Some(std::iter::repeat(ch).take(max_len).collect())
+        Some(std::iter::repeat_n(ch, max_len).collect())
     } else {
         None
     }

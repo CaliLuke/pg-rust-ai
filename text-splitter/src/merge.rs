@@ -29,27 +29,25 @@ pub fn merge_splits(
             separator_len
         };
 
-        if total + len + sep_cost > chunk_size {
-            if !current_doc.is_empty() {
-                let doc = join_docs(&current_doc, separator, strip_whitespace);
-                if let Some(doc) = doc {
-                    docs.push(doc);
-                }
-                // Pop from front until under chunk_overlap
-                while total > chunk_overlap
-                    || (total + len + if current_doc.is_empty() { 0 } else { separator_len }
-                        > chunk_size
-                        && total > 0)
-                {
-                    let removed_len = length_fn(current_doc[0]);
-                    let sep = if current_doc.len() > 1 {
-                        separator_len
-                    } else {
-                        0
-                    };
-                    total = total.saturating_sub(removed_len + sep);
-                    current_doc.remove(0);
-                }
+        if total + len + sep_cost > chunk_size && !current_doc.is_empty() {
+            let doc = join_docs(&current_doc, separator, strip_whitespace);
+            if let Some(doc) = doc {
+                docs.push(doc);
+            }
+            // Pop from front until under chunk_overlap
+            while total > chunk_overlap
+                || (total + len + if current_doc.is_empty() { 0 } else { separator_len }
+                    > chunk_size
+                    && total > 0)
+            {
+                let removed_len = length_fn(current_doc[0]);
+                let sep = if current_doc.len() > 1 {
+                    separator_len
+                } else {
+                    0
+                };
+                total = total.saturating_sub(removed_len + sep);
+                current_doc.remove(0);
             }
         }
 
