@@ -1850,6 +1850,147 @@ async fn test_concurrency_no_duplicate_embeddings() {
 }
 
 // ============================================================
+// Parallel vectorizer processing tests
+// ============================================================
+
+#[tokio::test]
+async fn test_parallel_vectorizers_failing_one_does_not_block_others() {
+    let (node, pool) = start_postgres().await;
+    let port = node.get_host_port_ipv4(5432).await.unwrap();
+
+    setup_ai_schema(&pool).await;
+
+    // Vectorizer 1: will succeed (valid mock server)
+    setup_source_table(&pool, "para_ok", 3).await;
+    setup_queue_table(&pool, "ai", "para_ok_queue", 3).await;
+    setup_destination_table(&pool, "public", "para_ok_embeddings").await;
+
+    let (mock_url, _log) = start_mock_embedding_server().await;
+
+    VectorizerConfigBuilder::new("para_ok")
+        .embedding_openai("text-embedding-3-small", 3, &mock_url)
+        .chunking_none()
+        .insert(&pool)
+        .await;
+
+    // Vectorizer 2: will fail (failing mock server)
+    setup_source_table(&pool, "para_fail", 2).await;
+    setup_queue_table(&pool, "ai", "para_fail_queue", 2).await;
+    setup_destination_table(&pool, "public", "para_fail_embeddings").await;
+
+    let (fail_url, _fail_log) = start_failing_mock_embedding_server().await;
+
+    VectorizerConfigBuilder::new("para_fail")
+        .embedding_openai("text-embedding-3-small", 3, &fail_url)
+        .chunking_none()
+        .insert(&pool)
+        .await;
+
+    // Vectorizer 3: will also succeed
+    setup_source_table(&pool, "para_ok2", 2).await;
+    setup_queue_table(&pool, "ai", "para_ok2_queue", 2).await;
+    setup_destination_table(&pool, "public", "para_ok2_embeddings").await;
+
+    VectorizerConfigBuilder::new("para_ok2")
+        .embedding_openai("text-embedding-3-small", 3, &mock_url)
+        .chunking_none()
+        .insert(&pool)
+        .await;
+
+    std::env::set_var("MOCK_KEY", "test");
+
+    let worker = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![],
+        false, // exit_on_error = false
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    worker.run().await.unwrap();
+
+    // Successful vectorizers should have completed
+    let ok_count: i64 = sqlx::query_scalar("SELECT count(*) FROM public.para_ok_embeddings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ok_count, 3, "First successful vectorizer should have 3 embeddings");
+
+    let ok2_count: i64 = sqlx::query_scalar("SELECT count(*) FROM public.para_ok2_embeddings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ok2_count, 2, "Second successful vectorizer should have 2 embeddings");
+
+    // Failed vectorizer should have 0 embeddings
+    let fail_count: i64 = sqlx::query_scalar("SELECT count(*) FROM public.para_fail_embeddings")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(fail_count, 0, "Failed vectorizer should have 0 embeddings");
+
+    // Error should be recorded for the failed vectorizer
+    let error_count: i64 = sqlx::query_scalar("SELECT count(*) FROM ai.vectorizer_errors")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(error_count > 0, "Should have recorded errors for the failed vectorizer");
+}
+
+#[tokio::test]
+async fn test_parallel_vectorizers_cancellation() {
+    let (node, pool) = start_postgres().await;
+    let port = node.get_host_port_ipv4(5432).await.unwrap();
+
+    setup_ai_schema(&pool).await;
+
+    // Create two vectorizers with work to do
+    setup_source_table(&pool, "cancel_a", 5).await;
+    setup_queue_table(&pool, "ai", "cancel_a_queue", 5).await;
+    setup_destination_table(&pool, "public", "cancel_a_embeddings").await;
+
+    setup_source_table(&pool, "cancel_b", 5).await;
+    setup_queue_table(&pool, "ai", "cancel_b_queue", 5).await;
+    setup_destination_table(&pool, "public", "cancel_b_embeddings").await;
+
+    let (mock_url, _log) = start_mock_embedding_server().await;
+
+    VectorizerConfigBuilder::new("cancel_a")
+        .embedding_openai("text-embedding-3-small", 3, &mock_url)
+        .chunking_none()
+        .insert(&pool)
+        .await;
+
+    VectorizerConfigBuilder::new("cancel_b")
+        .embedding_openai("text-embedding-3-small", 3, &mock_url)
+        .chunking_none()
+        .insert(&pool)
+        .await;
+
+    std::env::set_var("MOCK_KEY", "test");
+
+    // Cancel immediately — worker should exit gracefully
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+
+    let worker = Worker::new(
+        &db_url_from_port(port),
+        Duration::from_secs(1),
+        true,
+        vec![],
+        true,
+        cancel,
+    )
+    .await
+    .unwrap();
+
+    let result = worker.run().await;
+    assert!(result.is_ok(), "Worker should exit gracefully on cancellation: {:?}", result);
+}
+
+// ============================================================
 // Full pipeline test using real extension SQL
 // ============================================================
 

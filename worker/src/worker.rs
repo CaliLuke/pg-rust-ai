@@ -116,11 +116,9 @@ impl Worker {
             return Ok(());
         }
 
+        // Load all vectorizers, filtering out disabled and failed-to-load ones
+        let mut vectorizers = Vec::new();
         for id in vectorizer_ids {
-            if self.cancel.is_cancelled() {
-                info!("Shutdown requested, skipping remaining vectorizers");
-                break;
-            }
             let vectorizer = match self.get_vectorizer(id).await {
                 Ok(v) => v,
                 Err(e) => {
@@ -132,10 +130,36 @@ impl Worker {
                 info!("Skipping disabled vectorizer {}", id);
                 continue;
             }
-            info!("Running vectorizer {}", id);
-            if let Err(e) = self.process_vectorizer(vectorizer, tracking).await {
-                error!(vectorizer_id = id, "Failed to process vectorizer: {e}");
-                tracking.save_vectorizer_error(Some(id), &e.to_string()).await;
+            vectorizers.push(vectorizer);
+        }
+
+        // Process all vectorizers concurrently
+        let mut join_set = tokio::task::JoinSet::new();
+        for vectorizer in vectorizers {
+            let pool = self.pool.clone();
+            let cancel = self.cancel.clone();
+            let tracking = Arc::clone(tracking);
+            let vid = vectorizer.id;
+            join_set.spawn(async move {
+                info!("Running vectorizer {}", vid);
+                let result = process_vectorizer(pool, cancel, vectorizer, &tracking).await;
+                (vid, result)
+            });
+        }
+
+        while let Some(result) = join_set.join_next().await {
+            if self.cancel.is_cancelled() {
+                join_set.abort_all();
+                info!("Shutdown requested, aborting remaining vectorizers");
+                break;
+            }
+            match result {
+                Ok((vid, Ok(()))) => debug!("Vectorizer {} completed", vid),
+                Ok((vid, Err(e))) => {
+                    error!(vectorizer_id = vid, "Failed to process vectorizer: {e}");
+                    tracking.save_vectorizer_error(Some(vid), &e.to_string()).await;
+                }
+                Err(e) => error!("Vectorizer task panicked: {e}"),
             }
         }
 
@@ -200,43 +224,49 @@ impl Worker {
         Ok(vectorizer)
     }
 
-    #[tracing::instrument(skip(self, tracking), fields(vectorizer_id = vectorizer.id))]
-    async fn process_vectorizer(&self, vectorizer: Vectorizer, tracking: &Arc<WorkerTracking>) -> Result<()> {
-        let concurrency = (vectorizer.config.processing.concurrency.max(1) as usize).min(10);
+}
 
-        if concurrency == 1 {
-            let executor = crate::executor::Executor::new(
-                self.pool.clone(), vectorizer, self.cancel.clone(), Arc::clone(tracking),
-            ).await?;
-            executor.run().await?;
-            return Ok(());
-        }
+#[tracing::instrument(skip(pool, cancel, tracking), fields(vectorizer_id = vectorizer.id))]
+async fn process_vectorizer(
+    pool: Pool<Postgres>,
+    cancel: CancellationToken,
+    vectorizer: Vectorizer,
+    tracking: &Arc<WorkerTracking>,
+) -> Result<()> {
+    let concurrency = (vectorizer.config.processing.concurrency.max(1) as usize).min(10);
 
-        info!("Running vectorizer {} with concurrency {}", vectorizer.id, concurrency);
-        let mut join_set = tokio::task::JoinSet::new();
-        for _ in 0..concurrency {
-            let pool = self.pool.clone();
-            let v = vectorizer.clone();
-            let cancel = self.cancel.clone();
-            let tracking = Arc::clone(tracking);
-            join_set.spawn(async move {
-                let executor = crate::executor::Executor::new(pool, v, cancel, tracking).await?;
-                executor.run().await
-            });
-        }
-
-        while let Some(result) = join_set.join_next().await {
-            if self.cancel.is_cancelled() {
-                join_set.abort_all();
-                info!("Shutdown requested, aborting remaining executors for vectorizer {}", vectorizer.id);
-                break;
-            }
-            match result {
-                Ok(Ok(count)) => info!("Executor for vectorizer {} processed {} items", vectorizer.id, count),
-                Ok(Err(e)) => error!("Executor failed for vectorizer {}: {}", vectorizer.id, e),
-                Err(e) => error!("Executor panicked for vectorizer {}: {}", vectorizer.id, e),
-            }
-        }
-        Ok(())
+    if concurrency == 1 {
+        let executor = crate::executor::Executor::new(
+            pool, vectorizer, cancel, Arc::clone(tracking),
+        ).await?;
+        executor.run().await?;
+        return Ok(());
     }
+
+    info!("Running vectorizer {} with concurrency {}", vectorizer.id, concurrency);
+    let mut join_set = tokio::task::JoinSet::new();
+    for _ in 0..concurrency {
+        let pool = pool.clone();
+        let v = vectorizer.clone();
+        let cancel = cancel.clone();
+        let tracking = Arc::clone(tracking);
+        join_set.spawn(async move {
+            let executor = crate::executor::Executor::new(pool, v, cancel, tracking).await?;
+            executor.run().await
+        });
+    }
+
+    while let Some(result) = join_set.join_next().await {
+        if cancel.is_cancelled() {
+            join_set.abort_all();
+            info!("Shutdown requested, aborting remaining executors for vectorizer {}", vectorizer.id);
+            break;
+        }
+        match result {
+            Ok(Ok(count)) => info!("Executor for vectorizer {} processed {} items", vectorizer.id, count),
+            Ok(Err(e)) => error!("Executor failed for vectorizer {}: {}", vectorizer.id, e),
+            Err(e) => error!("Executor panicked for vectorizer {}: {}", vectorizer.id, e),
+        }
+    }
+    Ok(())
 }
