@@ -242,11 +242,13 @@ impl VectorizerConfigBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub fn loading_column(mut self, col: &str) -> Self {
         self.loading = json!({"implementation": "column", "column_name": col});
         self
     }
 
+    #[allow(dead_code)]
     pub fn destination_table(mut self, table: &str) -> Self {
         self.destination = json!({
             "implementation": "table",
