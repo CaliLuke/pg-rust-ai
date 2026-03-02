@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use async_openai::{
-    types::{CreateEmbeddingRequestArgs},
+    types::embeddings::CreateEmbeddingRequestArgs,
     Client as OpenAIClient,
 };
 use ollama_rs::Ollama;
