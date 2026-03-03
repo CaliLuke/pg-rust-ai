@@ -12,6 +12,7 @@ const DEFAULT_DELIMITERS: &[&str] = &[". ", "! ", "? ", "\n"];
 pub struct SentenceChunker {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
+    pub min_sentences_per_chunk: usize,
     pub delimiters: Vec<String>,
     pub min_characters_per_sentence: usize,
     pub strip_whitespace: bool,
@@ -23,6 +24,7 @@ impl SentenceChunker {
         Self {
             chunk_size,
             chunk_overlap,
+            min_sentences_per_chunk: 1,
             delimiters: DEFAULT_DELIMITERS.iter().map(|s| s.to_string()).collect(),
             min_characters_per_sentence: 12,
             strip_whitespace: true,
@@ -67,6 +69,14 @@ impl SentenceChunker {
 
             // Would adding this sentence exceed chunk_size?
             if current_len + s_len > self.chunk_size {
+                // Best effort: avoid emitting tiny chunks when configured to keep
+                // at least N sentences per chunk.
+                if current_sentences.len() < self.min_sentences_per_chunk {
+                    current_sentences.push(i);
+                    current_len += s_len;
+                    continue;
+                }
+
                 // Emit current chunk
                 let chunk = self.join_sentences(&sentences, &current_sentences);
                 chunks.push(chunk);
@@ -212,6 +222,7 @@ mod tests {
         let chunker = SentenceChunker {
             chunk_size: 30,
             chunk_overlap: 0,
+            min_sentences_per_chunk: 1,
             min_characters_per_sentence: 1,
             ..SentenceChunker::new(30, 0)
         };
@@ -243,6 +254,7 @@ mod tests {
     #[test]
     fn test_sentence_chunker_delimiter_at_end() {
         let chunker = SentenceChunker {
+            min_sentences_per_chunk: 1,
             min_characters_per_sentence: 1,
             ..SentenceChunker::new(100, 0)
         };
@@ -255,6 +267,7 @@ mod tests {
         let chunker = SentenceChunker {
             chunk_size: 100,
             chunk_overlap: 0,
+            min_sentences_per_chunk: 1,
             min_characters_per_sentence: 15,
             ..SentenceChunker::new(100, 0)
         };
@@ -268,16 +281,21 @@ mod tests {
     #[test]
     fn test_sentence_chunker_overlap() {
         let chunker = SentenceChunker {
-            chunk_size: 25,
-            chunk_overlap: 15,
+            chunk_size: 60,
+            chunk_overlap: 35,
+            min_sentences_per_chunk: 1,
             min_characters_per_sentence: 1,
-            ..SentenceChunker::new(25, 15)
+            ..SentenceChunker::new(60, 35)
         };
-        let result = chunker.split_text("AAA. BBB. CCC. DDD.");
-        // Sentences: ["AAA. ", "BBB. ", "CCC. ", "DDD."]
-        // Sizes: 5, 5, 5, 4
-        // All fit in one chunk (5+5+5+4=19 <= 25)
-        assert!(result.len() >= 1);
+        let text = "Schemas define structure. Vectorizers create embeddings. Workers process pending rows. Queries retrieve semantic context.";
+        let result = chunker.split_text(text);
+        assert!(result.len() >= 2, "Expected multiple chunks, got {:?}", result);
+        assert!(
+            result[0].contains("Vectorizers create embeddings.")
+                && result[1].contains("Vectorizers create embeddings."),
+            "Expected overlap sentence to appear in adjacent chunks: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -304,5 +322,33 @@ mod tests {
         // "Hi. " (4) < 10, merged with "How are you? " → "Hi. How are you? " (18) >= 10, emitted
         // "Good. " (6) < 10, remains in buffer, merged with last
         assert_eq!(result, vec!["Hi. How are you? Good. "]);
+    }
+
+    #[test]
+    fn test_sentence_chunker_min_sentences_per_chunk() {
+        let chunker = SentenceChunker {
+            chunk_size: 7,
+            chunk_overlap: 0,
+            min_sentences_per_chunk: 2,
+            min_characters_per_sentence: 1,
+            ..SentenceChunker::new(7, 0)
+        };
+        let result = chunker.split_text("A. B. C. D.");
+        assert_eq!(result, vec!["A. B.", "C. D."]);
+    }
+
+    #[test]
+    fn test_sentence_chunker_min_sentences_best_effort() {
+        let chunker = SentenceChunker {
+            chunk_size: 7,
+            chunk_overlap: 0,
+            min_sentences_per_chunk: 2,
+            min_characters_per_sentence: 1,
+            ..SentenceChunker::new(7, 0)
+        };
+        let result = chunker.split_text("AAAA. BBBB. CCCC.");
+        assert_eq!(result.len(), 2);
+        assert!(result[0].contains("AAAA."));
+        assert!(result[0].contains("BBBB."));
     }
 }

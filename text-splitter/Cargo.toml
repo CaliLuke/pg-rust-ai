@@ -5,3 +5,11 @@ edition = "2021"
 
 [dependencies]
 regex = "1"
+
+[dev-dependencies]
+criterion = "0.5"
+tiktoken-rs = "0.9"
+
+[[bench]]
+name = "splitters_bench"
+harness = false
