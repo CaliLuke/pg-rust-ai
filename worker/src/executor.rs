@@ -547,17 +547,16 @@ impl Executor {
                 separators,
                 is_separator_regex,
             } => {
-                let mut splitter = pgai_text_splitter::RecursiveCharacterTextSplitter::new(
-                    *chunk_size,
-                    *chunk_overlap,
-                );
+                let mut builder = julienne::RecursiveCharacterTextSplitter::builder()
+                    .chunk_size(*chunk_size)
+                    .chunk_overlap(*chunk_overlap);
                 if let Some(seps) = separators {
-                    splitter.separators = seps.clone();
+                    builder = builder.separators(seps.clone());
                 }
                 if let Some(is_regex) = is_separator_regex {
-                    splitter.is_separator_regex = *is_regex;
+                    builder = builder.separators_are_regex(*is_regex);
                 }
-                Ok(splitter.split_text(text))
+                Ok(builder.build()?.split_text(text))
             }
             ChunkerConfig::CharacterTextSplitter {
                 chunk_size,
@@ -565,15 +564,15 @@ impl Executor {
                 separator,
                 is_separator_regex,
             } => {
-                let mut splitter = pgai_text_splitter::CharacterTextSplitter::new(
-                    separator,
-                    *chunk_size,
-                    *chunk_overlap,
-                );
-                if let Some(is_regex) = is_separator_regex {
-                    splitter.is_separator_regex = *is_regex;
-                }
-                Ok(splitter.split_text(text))
+                let mut builder = julienne::CharacterTextSplitter::builder()
+                    .chunk_size(*chunk_size)
+                    .chunk_overlap(*chunk_overlap);
+                builder = if is_separator_regex.unwrap_or(false) {
+                    builder.separator_regex(separator)
+                } else {
+                    builder.separator(separator)
+                };
+                Ok(builder.build()?.split_text(text))
             }
             ChunkerConfig::SentenceChunker {
                 chunk_size,
@@ -582,18 +581,19 @@ impl Executor {
                 min_characters_per_sentence,
                 min_sentences_per_chunk,
             } => {
-                let mut chunker =
-                    pgai_text_splitter::SentenceChunker::new(*chunk_size, *chunk_overlap);
+                let mut builder = julienne::SentenceChunker::builder()
+                    .chunk_size(*chunk_size)
+                    .chunk_overlap(*chunk_overlap);
                 if let Some(delims) = delimiters {
-                    chunker.delimiters = delims.clone();
+                    builder = builder.delimiters(delims.clone());
                 }
                 if let Some(min_chars) = min_characters_per_sentence {
-                    chunker.min_characters_per_sentence = *min_chars;
+                    builder = builder.min_characters_per_sentence(*min_chars);
                 }
                 if let Some(min_sentences) = min_sentences_per_chunk {
-                    chunker.min_sentences_per_chunk = *min_sentences;
+                    builder = builder.min_sentences_per_chunk(*min_sentences);
                 }
-                Ok(chunker.split_text(text))
+                Ok(builder.build()?.split_text(text))
             }
             ChunkerConfig::Semchunk {
                 chunk_size,
@@ -601,15 +601,16 @@ impl Executor {
                 memoize,
                 strict_mode,
             } => {
-                let mut splitter =
-                    pgai_text_splitter::SemchunkSplitter::new(*chunk_size, *chunk_overlap);
+                let mut builder = julienne::SemchunkSplitter::builder()
+                    .chunk_size(*chunk_size)
+                    .chunk_overlap(*chunk_overlap);
                 if let Some(m) = memoize {
-                    splitter.memoize = *m;
+                    builder = builder.memoize(*m);
                 }
                 if let Some(s) = strict_mode {
-                    splitter.strict_mode = *s;
+                    builder = builder.strict_mode(*s);
                 }
-                Ok(splitter.split_text(text))
+                Ok(builder.build()?.split_text(text))
             }
             ChunkerConfig::SemanticChunker {
                 chunk_size,

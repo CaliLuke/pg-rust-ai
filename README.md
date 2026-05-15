@@ -6,7 +6,8 @@ A Rust toolkit that turns PostgreSQL into a retrieval engine for RAG application
 
 - **`worker/`** — Async vectorizer worker. Polls the database for pending work, chunks text, calls embedding APIs, writes results back.
 - **`extension/`** — PostgreSQL extension (pgrx). Provides the `ai` schema, `create_vectorizer()` SQL API, config helpers, triggers, and queue infrastructure.
-- **`text-splitter/`** — Text chunking library. Character splitter, recursive splitter, sentence chunker, and semantic recursive splitter (semchunk).
+
+The worker depends on the published `julienne` crate for text chunking.
 
 ## How it works
 
@@ -29,7 +30,6 @@ SELECT ai.create_vectorizer(
 ```bash
 cargo build -p worker          # worker binary
 cargo check -p extension       # extension (full build needs cargo pgrx)
-cargo build -p pgai-text-splitter  # text splitter library
 ```
 
 ## Running the worker
@@ -86,7 +86,6 @@ Management:
 ## Testing
 
 ```bash
-cargo test -p pgai-text-splitter   # 60 tests
 cargo test -p worker --lib         # 37 tests
 cargo check -p extension           # type-check (linking needs pgrx)
 ```

@@ -7,7 +7,6 @@ pgai/
 ├── Cargo.toml                 # Workspace root
 ├── worker/                    # Vectorizer worker binary
 ├── extension/                 # PostgreSQL extension (pgrx)
-├── text-splitter/             # Text chunking library
 ├── scripts/                   # Load test tooling
 └── plans/                     # Coordination docs (temporary)
 ```
@@ -15,7 +14,7 @@ pgai/
 ## Crate Dependencies
 
 ```text
-worker ──depends──> pgai-text-splitter
+worker ──depends──> julienne
 worker ──depends──> async-openai, ollama-rs, sqlx, tokio, tiktoken-rs
 extension ──depends──> pgrx, reqwest, serde_json
 ```
@@ -177,9 +176,9 @@ Loaded at `CREATE EXTENSION` time via `extension_sql_file!` macro.
 - `ai.drop_vectorizer(vectorizer_id, drop_all)` — cleanup
 - `ai.vectorizer_queue_pending(vectorizer_id)` — queue depth
 
-## Text Splitter (`text-splitter/`)
+## Text Chunking (`julienne`)
 
-Pure Rust library, no async, single dependency (`regex`).
+Published Rust library used by the worker for non-embedding text chunking.
 
 ### Types
 

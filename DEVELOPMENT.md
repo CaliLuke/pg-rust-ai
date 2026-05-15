@@ -11,26 +11,23 @@
 Cargo.toml          — Workspace root
 worker/             — Vectorizer worker (tokio, sqlx, async-openai, ollama-rs)
 extension/          — PostgreSQL extension (pgrx 0.16.1, PG 13-18)
-text-splitter/      — Text chunking library
 scripts/            — Load test tooling
 plans/              — Coordination docs (temporary)
 ```
+
+The worker uses the published `julienne` crate for text chunking.
 
 ## Building
 
 ```bash
 cargo build -p worker              # worker binary
 cargo check -p extension           # extension type-check (full build needs cargo pgrx)
-cargo build -p pgai-text-splitter  # text splitter library
 cargo check --workspace            # everything
 ```
 
 ## Testing
 
 ```bash
-# Text splitter (60 tests)
-cargo test -p pgai-text-splitter
-
 # Worker unit tests (37 tests)
 cargo test -p worker --lib
 ```

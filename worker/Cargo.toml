@@ -29,7 +29,7 @@ backon = "1"
 backoff = "0.4"
 futures = "0.3"
 uuid = { version = "1.10", features = ["v4", "serde"] }
-pgai-text-splitter = { path = "../text-splitter" }
+julienne = "0.1.0"
 tiktoken-rs = "0.9.1"
 
 [dev-dependencies]

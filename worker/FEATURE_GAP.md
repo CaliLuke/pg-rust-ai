@@ -57,8 +57,7 @@ Entirely missing. Python supports:
 
 Feature parity on strategies (None, Character, Recursive). Differences:
 
-- Rust RecursiveCharacterTextSplitter uses `text-splitter` crate, doesn't support custom `separators` list
-- Rust CharacterTextSplitter doesn't support `is_separator_regex`
+- Rust chunking uses the published `julienne` crate
 - Different implementations may produce slightly different chunk boundaries
 
 ## 6. Error Handling and Retry
